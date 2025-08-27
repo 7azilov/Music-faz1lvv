@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Поиск Музыки</title>
+    <!-- Подключение Tailwind CSS для стилей -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Скрипт для интеграции с Telegram Mini App -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        /* Дополнительные стили для лучшего вида в Telegram */
+        body {
+            background-color: var(--tg-theme-bg-color, #18222d);
+            color: var(--tg-theme-text-color, #ffffff);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
+        .search-input {
+            background-color: var(--tg-theme-secondary-bg-color, #2a3b4c);
+            border-color: var(--tg-theme-hint-color, #708499);
+        }
+        .search-button {
+            background-color: var(--tg-theme-button-color, #5288c1);
+            color: var(--tg-theme-button-text-color, #ffffff);
+        }
+        .result-item {
+            background-color: var(--tg-theme-secondary-bg-color, #2a3b4c);
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <div class="container mx-auto p-4 max-w-lg">
+        
+        <!-- Заголовок приложения -->
+        <header class="text-center my-6">
+            <h1 class="text-3xl font-bold">🎵 Поиск Музыки</h1>
+            <p class="text-sm mt-1 opacity-70">Найдите любимые треки</p>
+        </header>
+
+        <!-- Форма поиска -->
+        <form id="search-form" class="flex items-center gap-2 mb-6">
+            <input 
+                type="text" 
+                id="search-input"
+                placeholder="Название песни или исполнитель..."
+                class="search-input w-full p-3 rounded-lg border focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+            >
+            <button 
+                type="submit"
+                class="search-button p-3 rounded-lg font-semibold transition hover:opacity-90"
+            >
+                Найти
+            </button>
+        </form>
+
+        <!-- Контейнер для результатов поиска -->
+        <div id="results-container" class="space-y-3">
+            <!-- Сюда будут добавляться результаты поиска -->
+        </div>
+
+        <!-- Индикатор загрузки -->
+        <div id="loader" class="text-center py-10 hidden">
+            <p>Идет поиск...</p>
+        </div>
+        
+        <!-- Сообщение об ошибке или отсутствии результатов -->
+        <div id="message-container" class="text-center py-10 hidden">
+            <p id="message-text"></p>
+        </div>
+
+    </div>
+
+    <script>
+        // Инициализация Telegram Web App
+        const tg = window.Telegram.WebApp;
+        tg.ready();
+        // Расширяем приложение на всю высоту
+        tg.expand();
+
+        // Получаем элементы DOM
+        const searchForm = document.getElementById('search-form');
+        const searchInput = document.getElementById('search-input');
+        const resultsContainer = document.getElementById('results-container');
+        const loader = document.getElementById('loader');
+        const messageContainer = document.getElementById('message-container');
+        const messageText = document.getElementById('message-text');
+
+        // Обработчик отправки формы
+        searchForm.addEventListener('submit', function(event) {
+            event.preventDefault(); // Предотвращаем перезагрузку страницы
+            const query = searchInput.value.trim();
+
+            if (query) {
+                searchMusic(query);
+            }
+        });
+
+        // Функция для поиска музыки через API Deezer с использованием JSONP
+        function searchMusic(query) {
+            // Очищаем предыдущие результаты и сообщения
+            resultsContainer.innerHTML = '';
+            messageContainer.classList.add('hidden');
+            loader.classList.remove('hidden');
+
+            // Создаем уникальное имя для callback-функции, чтобы избежать конфликтов
+            const callbackName = 'jsonp_callback_' + Date.now();
+
+            // Определяем callback-функцию в глобальной области видимости
+            window[callbackName] = function(response) {
+                loader.classList.add('hidden');
+                
+                // Проверяем, вернул ли API ошибку
+                if (response.error) {
+                     console.error('Ошибка API Deezer:', response.error);
+                     showMessage(`Ошибка API: ${response.error.message}`);
+                } else if (response.data && response.data.length > 0) {
+                    displayResults(response.data);
+                } else {
+                    showMessage('Ничего не найдено. Попробуйте другой запрос.');
+                }
+
+                // Очистка: удаляем тег script и callback-функцию из глобальной области
+                document.body.removeChild(scriptElement);
+                delete window[callbackName];
+            };
+
+            // Создаем тег script для JSONP-запроса
+            const scriptElement = document.createElement('script');
+            scriptElement.src = `https://api.deezer.com/search?q=${encodeURIComponent(query)}&output=jsonp&callback=${callbackName}`;
+            
+            // Обработчик ошибок на случай, если скрипт не сможет загрузиться (например, нет интернета)
+            scriptElement.onerror = function() {
+                loader.classList.add('hidden');
+                showMessage('Не удалось загрузить результаты. Проверьте подключение к интернету.');
+                
+                // Очистка в случае ошибки
+                if (document.body.contains(scriptElement)) {
+                    document.body.removeChild(scriptElement);
+                }
+                delete window[callbackName];
+            };
+            
+            // Добавляем скрипт на страницу, что инициирует запрос
+            document.body.appendChild(scriptElement);
+        }
+
+        // Функция для отображения результатов
+        function displayResults(tracks) {
+            tracks.forEach(track => {
+                const trackElement = document.createElement('div');
+                trackElement.className = 'result-item flex items-center p-3 rounded-lg shadow-md transition hover:scale-105 cursor-pointer';
+                
+                trackElement.innerHTML = `
+                    <img src="${track.album.cover_small}" alt="Обложка альбома" class="w-16 h-16 rounded-md mr-4 object-cover">
+                    <div class="flex-1 overflow-hidden">
+                        <p class="font-bold truncate">${track.title}</p>
+                        <p class="text-sm opacity-70 truncate">${track.artist.name}</p>
+                    </div>
+                    <div class="text-right text-sm opacity-70">
+                        ${Math.floor(track.duration / 60)}:${(track.duration % 60).toString().padStart(2, '0')}
+                    </div>
+                `;
+                
+                // При клике на трек отправляем данные боту и показываем нативное уведомление
+                trackElement.addEventListener('click', () => {
+                    // Отправляем данные о треке боту в формате JSON
+                    tg.sendData(JSON.stringify(track));
+                    
+                    // Показываем нативное всплывающее окно Telegram
+                    tg.showPopup({
+                        title: 'Трек выбран',
+                        message: `Вы отправили боту трек: ${track.title} - ${track.artist.name}`,
+                        buttons: [{type: 'ok'}]
+                    });
+                });
+
+                resultsContainer.appendChild(trackElement);
+            });
+        }
+        
+        // Функция для отображения сообщений (ошибки, нет результатов)
+        function showMessage(text) {
+            messageText.textContent = text;
+            messageContainer.classList.remove('hidden');
+        }
+
+    </script>
+</body>
+</html>
